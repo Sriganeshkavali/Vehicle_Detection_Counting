@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Detection & Counting</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for aesthetic loading spinner */
+        .loader {
+            border-top-color: #3b82f6;
+            -webkit-animation: spinner 1.5s linear infinite;
+            animation: spinner 1.5s linear infinite;
+        }
+        @-webkit-keyframes spinner {
+            0% { -webkit-transform: rotate(0deg); }
+            100% { -webkit-transform: rotate(360deg); }
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Apply Inter font */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f9;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <!-- Main Card Container -->
+    <div class="w-full max-w-4xl bg-white rounded-xl shadow-2xl p-6 md:p-10 border border-gray-100">
+        
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-extrabold text-gray-900 mb-2">
+                <span class="text-blue-600">Smart</span> Vehicle Detector
+            </h1>
+            <p class="text-gray-500">Upload an image or video to detect and count vehicles using Haar Cascades.</p>
+        </header>
+
+        <!-- Flash Messages & Status -->
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="mb-4 space-y-2">
+                {% for message in messages %}
+                    <div class="p-3 text-sm rounded-xl border flash-message {% if 'ERROR' in message %}bg-red-100 text-red-700 border-red-300{% elif 'Note' in message %}bg-yellow-100 text-yellow-700 border-yellow-300{% else %}bg-green-100 text-green-700 border-green-300{% endif %}" role="alert">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <!-- Upload Form -->
+        <form id="uploadForm" action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data" class="space-y-6">
+            
+            <label for="file-upload" class="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition duration-300 ease-in-out border-blue-400/50 hover:border-blue-500">
+                <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                    <svg class="w-8 h-8 mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.885 3.125A4 4 0 013 16h18a4 4 0 01-3.885 3.125A4 4 0 0117 16m-7-5l2-2m0 0l2 2m-2-2v8"></path></svg>
+                    <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">Click to upload</span> or drag and drop</p>
+                    <p class="text-xs text-gray-500">Image (JPG, PNG) or Video (MP4, AVI)</p>
+                </div>
+                <input id="file-upload" type="file" name="file" class="hidden" required onchange="updateFileName(this)"/>
+            </label>
+
+            <p id="fileNameDisplay" class="text-center text-sm text-gray-600 font-medium"></p>
+            
+            <button type="submit" 
+                    class="w-full px-6 py-3 text-lg font-semibold text-white bg-blue-600 rounded-xl shadow-lg hover:bg-blue-700 transition duration-300 ease-in-out transform hover:scale-[1.01] focus:outline-none focus:ring-4 focus:ring-blue-300 flex items-center justify-center">
+                Process Media
+            </button>
+        </form>
+
+        <!-- Loading Indicator -->
+        <div id="loadingIndicator" class="hidden mt-8 text-center">
+            <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mx-auto mb-3"></div>
+            <p class="text-blue-600 font-semibold">Processing... Please wait, video analysis can take a moment.</p>
+        </div>
+
+
+        <!-- Results Display -->
+        {% if message and (result_image or result_video) %}
+            <div class="mt-10 pt-6 border-t border-gray-200">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Detection Results</h2>
+                <div class="p-4 rounded-xl bg-gray-50 border border-gray-200 text-gray-700 font-medium mb-4">
+                    {{ message }}
+                </div>
+                
+                <div class="flex justify-center items-center bg-gray-900 rounded-xl overflow-hidden shadow-xl">
+                    {% if is_video and result_video %}
+                        <!-- Video Result -->
+                        <video controls class="w-full h-auto max-h-[60vh] object-contain" autoplay loop muted>
+                            <!-- AVI playback support is limited. The browser may not play this file. -->
+                            <source src="{{ url_for('static', filename=result_video) }}" type="video/avi">
+                            Your browser does not support the video tag. Please download the file or try converting the AVI to MP4.
+                        </video>
+                    {% elif result_image %}
+                        <!-- Image Result -->
+                        <img src="data:image/jpeg;base64,{{ result_image }}" alt="Processed Image" class="w-full h-auto max-h-[60vh] object-contain">
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
+    </div>
+
+    <script>
+        function updateFileName(input) {
+            const display = document.getElementById('fileNameDisplay');
+            if (input.files.length > 0) {
+                display.textContent = 'Selected File: ' + input.files[0].name;
+            } else {
+                display.textContent = '';
+            }
+        }
+
+        function showLoading(button) {
+            const form = document.getElementById('uploadForm');
+            const loading = document.getElementById('loadingIndicator');
+            const fileInput = document.getElementById('file-upload');
+            
+            // Only show loading if a file is actually selected
+            if (fileInput.files.length > 0 && fileInput.files[0].name) {
+                // Disable form elements
+                button.disabled = true;
+                button.classList.add('opacity-70');
+                
+                // Change button text/icon
+                button.innerHTML = '<div class="loader ease-linear rounded-full border-2 border-t-2 border-white h-5 w-5 mr-3"></div> Processing...';
+                
+                // Show global loading indicator
+                loading.classList.remove('hidden');
+                
+                // Hide previous flash messages
+                document.querySelectorAll('.flash-message').forEach(el => el.style.display = 'none');
+            }
+        }
+        
+        // Ensure form submission also triggers loading state
+        document.getElementById('uploadForm').addEventListener('submit', function() {
+             showLoading(this.querySelector('button[type="submit"]'));
+        });
+    </script>
+</body>
+</html>
